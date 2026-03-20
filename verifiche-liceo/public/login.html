@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accedi — Verifiche</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>📋 Verifiche Scolastiche</h1>
+    <nav><a href="index.html">Home</a></nav>
+  </header>
+
+  <main style="max-width:420px">
+    <div class="card" id="box-login">
+      <h2 style="margin-bottom:20px">Accedi</h2>
+      <div class="messaggio messaggio-err" id="msg-login"></div>
+      <div class="form-gruppo">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="tua@email.com">
+      </div>
+      <div class="form-gruppo">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="Password">
+      </div>
+      <button class="btn btn-primario" style="width:100%" id="btn-login">Accedi</button>
+      <p style="text-align:center;margin-top:16px;font-size:0.9rem">
+        Non hai un account? <a href="#" id="link-registrati" style="color:var(--blu)">Registrati</a>
+      </p>
+      <p style="text-align:center;margin-top:8px;font-size:0.85rem">
+        <a href="#" id="link-reset" style="color:var(--grigio)">Password dimenticata?</a>
+      </p>
+    </div>
+
+    <div class="card" id="box-registra" style="display:none">
+      <h2 style="margin-bottom:20px">Registrati</h2>
+      <div class="messaggio messaggio-err" id="msg-registra"></div>
+      <div class="messaggio messaggio-ok" id="msg-registra-ok"></div>
+      <div class="form-gruppo">
+        <label>Nome</label>
+        <input type="text" id="reg-nome" placeholder="Il tuo nome">
+      </div>
+      <div class="form-gruppo">
+        <label>Classe</label>
+        <input type="text" id="reg-classe" placeholder="Es. 2A">
+      </div>
+      <div class="form-gruppo">
+        <label>Email</label>
+        <input type="email" id="reg-email" placeholder="tua@email.com">
+      </div>
+      <div class="form-gruppo">
+        <label>Password</label>
+        <input type="password" id="reg-password" placeholder="Minimo 6 caratteri">
+      </div>
+      <button class="btn btn-primario" style="width:100%" id="btn-registra">Registrati</button>
+      <p style="text-align:center;margin-top:16px;font-size:0.9rem">
+        Hai già un account? <a href="#" id="link-accedi" style="color:var(--blu)">Accedi</a>
+      </p>
+    </div>
+
+    <div class="card" id="box-profilo" style="display:none">
+      <h2 style="margin-bottom:8px">Benvenuto!</h2>
+      <p id="profilo-email" style="color:var(--grigio);margin-bottom:20px"></p>
+      <a href="index.html" class="btn btn-primario" style="display:inline-block;text-decoration:none;margin-bottom:12px">
+        Vai alle verifiche
+      </a>
+      <br>
+      <button class="btn btn-secondario" id="btn-logout">Esci</button>
+    </div>
+  </main>
+
+  <script>
+    let supabase;
+
+    async function initSupabase() {
+      const res = await fetch('/api/config');
+      const { supabaseUrl, supabaseAnonKey } = await res.json();
+      const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+      supabase = createClient(supabaseUrl, supabaseAnonKey);
+      verificaSessione();
+    }
+
+    async function verificaSessione() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) mostraProfilo(session.user);
+    }
+
+    function mostraProfilo(user) {
+      document.getElementById('box-login').style.display = 'none';
+      document.getElementById('box-registra').style.display = 'none';
+      document.getElementById('box-profilo').style.display = 'block';
+      document.getElementById('profilo-email').textContent = user.email;
+    }
+
+    function mostra(id) {
+      const msg = (el) => { el.style.display = 'none'; el.textContent = ''; };
+      ['msg-login','msg-registra','msg-registra-ok'].forEach(m => msg(document.getElementById(m)));
+      document.getElementById('box-login').style.display = id === 'login' ? 'block' : 'none';
+      document.getElementById('box-registra').style.display = id === 'registra' ? 'block' : 'none';
+    }
+
+    document.getElementById('link-registrati').addEventListener('click', e => { e.preventDefault(); mostra('registra'); });
+    document.getElementById('link-accedi').addEventListener('click', e => { e.preventDefault(); mostra('login'); });
+
+    document.getElementById('btn-login').addEventListener('click', async () => {
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const msg = document.getElementById('msg-login');
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        msg.textContent = 'Email o password non corretti.';
+        msg.style.display = 'block';
+      } else {
+        const { data: { session } } = await supabase.auth.getSession();
+        mostraProfilo(session.user);
+      }
+    });
+
+    document.getElementById('btn-registra').addEventListener('click', async () => {
+      const nome = document.getElementById('reg-nome').value.trim();
+      const classe = document.getElementById('reg-classe').value.trim();
+      const email = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const msgErr = document.getElementById('msg-registra');
+      const msgOk = document.getElementById('msg-registra-ok');
+
+      const { error } = await supabase.auth.signUp({
+        email, password,
+        options: { data: { nome, classe } }
+      });
+      if (error) {
+        msgErr.textContent = error.message;
+        msgErr.style.display = 'block';
+      } else {
+        msgOk.textContent = 'Registrazione completata! Controlla la tua email per confermare.';
+        msgOk.style.display = 'block';
+      }
+    });
+
+    document.getElementById('link-reset').addEventListener('click', async e => {
+      e.preventDefault();
+      const email = document.getElementById('login-email').value.trim();
+      if (!email) { alert('Inserisci prima la tua email'); return; }
+      await supabase.auth.resetPasswordForEmail(email);
+      alert('Email di reset inviata. Controlla la posta.');
+    });
+
+    document.getElementById('btn-logout').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      mostra('login');
+    });
+
+    initSupabase();
+  </script>
+</body>
+</html>
