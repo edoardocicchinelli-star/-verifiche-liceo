@@ -4,6 +4,13 @@ const { createClient } = require('@supabase/supabase-js');
 const { Resend } = require('resend');
 const webpush = require('web-push');
 const cors = require('cors');
+const multer = require('multer');
+const mammoth = require('mammoth');
+const pdfParse = require('pdf-parse');
+const Anthropic = require('@anthropic-ai/sdk');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const app = express();
 app.use(express.json());
@@ -217,6 +224,97 @@ app.post('/api/send-reminders', async (req, res) => {
 });
 
 // ─── CONFIG PUBBLICA PER IL FRONTEND ─────────────────────────────────────────
+
+// IMPORT DA FILE
+const multerLib = require('multer');
+// (già importato sopra come multer)
+
+app.post('/api/import', adminAuth, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Nessun file caricato' });
+
+  let testo = '';
+  const mime = req.file.mimetype;
+
+  try {
+    if (mime.includes('wordprocessingml') || req.file.originalname.endsWith('.docx')) {
+      const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+      testo = result.value;
+    } else if (mime === 'application/pdf' || req.file.originalname.endsWith('.pdf')) {
+      const result = await pdfParse(req.file.buffer);
+      testo = result.text;
+    } else {
+      return res.status(400).json({ error: 'Formato non supportato. Usa .docx o .pdf' });
+    }
+  } catch (e) {
+    return res.status(500).json({ error: 'Errore nella lettura del file: ' + e.message });
+  }
+
+  if (!testo || testo.trim().length < 10) {
+    return res.status(400).json({ error: 'Il file sembra vuoto o illeggibile' });
+  }
+
+  let verificheEstratte = [];
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: `Sei un assistente che estrae informazioni su verifiche scolastiche da testi.
+Dal testo seguente estrai tutte le verifiche o interrogazioni menzionate.
+Per ciascuna restituisci un oggetto JSON con questi campi:
+- materia (stringa, es. "Storia della Musica")
+- argomento (stringa, descrizione sintetica dell argomento)
+- data_verifica (stringa in formato YYYY-MM-DD, se non specificata usa null)
+- classe (stringa, es. "3A", se non specificata usa "")
+
+Rispondi SOLO con un array JSON valido, senza testo aggiuntivo, senza markdown, senza backtick.
+Esempio: [{"materia":"Matematica","argomento":"Equazioni","data_verifica":"2026-03-25","classe":"2B"}]
+Se non trovi nessuna verifica rispondi con: []
+
+Testo:
+${testo.slice(0, 3000)}`
+      }]
+    });
+
+    const raw = response.content[0].text.trim();
+    verificheEstratte = JSON.parse(raw);
+  } catch (e) {
+    return res.status(500).json({ error: 'Errore analisi AI: ' + e.message });
+  }
+
+  if (!Array.isArray(verificheEstratte) || verificheEstratte.length === 0) {
+    return res.json({ trovate: 0, verifiche: [], messaggio: 'Nessuna verifica trovata nel documento' });
+  }
+
+  res.json({ trovate: verificheEstratte.length, verifiche: verificheEstratte });
+});
+
+app.post('/api/import/conferma', adminAuth, async (req, res) => {
+  const { verifiche } = req.body;
+  if (!Array.isArray(verifiche) || verifiche.length === 0) {
+    return res.status(400).json({ error: 'Nessuna verifica da salvare' });
+  }
+
+  const valide = verifiche.filter(v => v.materia && v.argomento && v.data_verifica);
+  if (valide.length === 0) {
+    return res.status(400).json({ error: 'Nessuna verifica ha tutti i campi obbligatori' });
+  }
+
+  const { data, error } = await supabase
+    .from('verifiche')
+    .insert(valide.map(v => ({
+      materia: v.materia,
+      argomento: v.argomento,
+      data_verifica: v.data_verifica,
+      classe: v.classe || ''
+    })))
+    .select();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ salvate: data.length });
+});
+
 app.get('/api/config', (req, res) => {
   res.json({
     supabaseUrl: process.env.SUPABASE_URL,
