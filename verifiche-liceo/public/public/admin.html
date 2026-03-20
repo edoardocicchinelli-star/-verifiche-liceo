@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Verifiche</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>⚙️ Pannello Admin</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="#" id="btn-logout-nav" style="display:none">Esci</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="card" id="box-login-admin" style="max-width:400px;margin:0 auto">
+      <h2 style="margin-bottom:20px">Accesso admin</h2>
+      <div class="messaggio messaggio-err" id="msg-admin-login"></div>
+      <div class="form-gruppo">
+        <label>Password admin</label>
+        <input type="password" id="admin-password-input" placeholder="Password">
+      </div>
+      <button class="btn btn-primario" style="width:100%" id="btn-admin-login">Accedi</button>
+    </div>
+
+    <div id="pannello-admin" style="display:none">
+
+      <div class="card">
+        <h2 style="margin-bottom:16px" id="form-titolo">Aggiungi verifica</h2>
+        <div class="messaggio messaggio-err" id="msg-form"></div>
+        <div class="messaggio messaggio-ok" id="msg-form-ok"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-gruppo">
+            <label>Materia</label>
+            <input type="text" id="f-materia" placeholder="Es. Storia della Musica">
+          </div>
+          <div class="form-gruppo">
+            <label>Classe</label>
+            <input type="text" id="f-classe" placeholder="Es. 3A">
+          </div>
+        </div>
+        <div class="form-gruppo">
+          <label>Argomento</label>
+          <input type="text" id="f-argomento" placeholder="Es. Blues e origini del jazz">
+        </div>
+        <div class="form-gruppo">
+          <label>Data verifica</label>
+          <input type="date" id="f-data">
+        </div>
+        <div style="display:flex;gap:12px">
+          <button class="btn btn-primario" id="btn-salva">Salva</button>
+          <button class="btn btn-secondario" id="btn-annulla" style="display:none">Annulla</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-bottom:8px">Importa da file</h2>
+        <p style="font-size:0.9rem;color:var(--grigio);margin-bottom:16px">
+          Carica un documento Word (.docx) o PDF con l'elenco delle verifiche.
+          L'AI estrarr&#224; automaticamente materia, argomento, data e classe.
+        </p>
+        <div class="messaggio messaggio-err" id="msg-import-err"></div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <input type="file" id="file-import" accept=".docx,.pdf" style="width:auto;margin-bottom:0">
+          <button class="btn btn-primario" id="btn-analizza">Analizza file</button>
+        </div>
+        <div id="anteprima-import" style="display:none;margin-top:20px">
+          <h3 style="margin-bottom:12px" id="titolo-anteprima"></h3>
+          <div id="tabella-anteprima"></div>
+          <div style="display:flex;gap:12px;margin-top:16px">
+            <button class="btn btn-successo" id="btn-conferma-import">Importa tutte</button>
+            <button class="btn btn-secondario" id="btn-annulla-import">Annulla</button>
+          </div>
+        </div>
+        <div class="messaggio messaggio-ok" id="msg-import-ok"></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2>Verifiche inserite</h2>
+          <button class="btn btn-successo" id="btn-invia-promemoria" style="font-size:0.85rem">
+            Invia promemoria ora
+          </button>
+        </div>
+        <div class="messaggio messaggio-ok" id="msg-promemoria"></div>
+        <div class="messaggio messaggio-err" id="msg-promemoria-err"></div>
+        <div id="lista-admin">
+          <div class="vuoto"><p>Caricamento...</p></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let adminPassword = '';
+    let verificheAdmin = [];
+    let editingId = null;
+    let verificheAnteprima = [];
+
+    document.getElementById('btn-admin-login').addEventListener('click', () => {
+      const pw = document.getElementById('admin-password-input').value;
+      if (!pw) return;
+      adminPassword = pw;
+      verificaAdmin();
+    });
+
+    document.getElementById('admin-password-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('btn-admin-login').click();
+    });
+
+    async function verificaAdmin() {
+      const res = await fetch('/api/verifiche', { headers: { 'x-admin-password': adminPassword } });
+      if (res.status === 401) {
+        const msg = document.getElementById('msg-admin-login');
+        msg.textContent = 'Password non corretta.';
+        msg.style.display = 'block';
+        return;
+      }
+      document.getElementById('box-login-admin').style.display = 'none';
+      document.getElementById('pannello-admin').style.display = 'block';
+      document.getElementById('btn-logout-nav').style.display = 'inline';
+      caricaVerifiche();
+    }
+
+    document.getElementById('btn-logout-nav').addEventListener('click', e => {
+      e.preventDefault();
+      adminPassword = '';
+      document.getElementById('pannello-admin').style.display = 'none';
+      document.getElementById('box-login-admin').style.display = 'block';
+      document.getElementById('admin-password-input').value = '';
+    });
+
+    async function caricaVerifiche() {
+      const res = await fetch('/api/verifiche');
+      verificheAdmin = await res.json();
+      renderAdmin();
+    }
+
+    function formatData(dataStr) {
+      const d = new Date(dataStr + 'T00:00:00');
+      return d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function renderAdmin() {
+      const el = document.getElementById('lista-admin');
+      if (!verificheAdmin.length) {
+        el.innerHTML = '<div class="vuoto"><p>Nessuna verifica inserita.</p></div>';
+        return;
+      }
+      el.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:0.9rem"><thead><tr style="background:var(--grigio-chiaro)"><th style="padding:10px;text-align:left">Data</th><th style="padding:10px;text-align:left">Materia</th><th style="padding:10px;text-align:left">Argomento</th><th style="padding:10px;text-align:left">Classe</th><th style="padding:10px;text-align:left">Azioni</th></tr></thead><tbody>' +
+        verificheAdmin.map(v =>
+          '<tr style="border-bottom:1px solid var(--bordo)"><td style="padding:10px">' + formatData(v.data_verifica) + '</td><td style="padding:10px"><strong>' + v.materia + '</strong></td><td style="padding:10px">' + v.argomento + '</td><td style="padding:10px">' + v.classe + '</td><td style="padding:10px;white-space:nowrap"><button class="btn btn-secondario" style="padding:4px 10px;font-size:0.8rem;margin-right:6px" onclick="modificaVerifica(\'' + v.id + '\')">Modifica</button><button class="btn btn-pericolo" style="padding:4px 10px;font-size:0.8rem" onclick="eliminaVerifica(\'' + v.id + '\')">Elimina</button></td></tr>'
+        ).join('') +
+        '</tbody></table>';
+    }
+
+    document.getElementById('btn-salva').addEventListener('click', async () => {
+      const materia = document.getElementById('f-materia').value.trim();
+      const classe = document.getElementById('f-classe').value.trim();
+      const argomento = document.getElementById('f-argomento').value.trim();
+      const data_verifica = document.getElementById('f-data').value;
+      const msgErr = document.getElementById('msg-form');
+      const msgOk = document.getElementById('msg-form-ok');
+      msgErr.style.display = 'none'; msgOk.style.display = 'none';
+      if (!materia || !argomento || !data_verifica || !classe) {
+        msgErr.textContent = 'Compila tutti i campi.'; msgErr.style.display = 'block'; return;
+      }
+      const url = editingId ? '/api/verifiche/' + editingId : '/api/verifiche';
+      const method = editingId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+        body: JSON.stringify({ materia, argomento, data_verifica, classe })
+      });
+      if (!res.ok) { msgErr.textContent = 'Errore nel salvataggio.'; msgErr.style.display = 'block'; return; }
+      msgOk.textContent = editingId ? 'Verifica modificata.' : 'Verifica aggiunta.';
+      msgOk.style.display = 'block';
+      resetForm(); caricaVerifiche();
+    });
+
+    function modificaVerifica(id) {
+      const v = verificheAdmin.find(v => v.id === id);
+      if (!v) return;
+      editingId = id;
+      document.getElementById('f-materia').value = v.materia;
+      document.getElementById('f-classe').value = v.classe;
+      document.getElementById('f-argomento').value = v.argomento;
+      document.getElementById('f-data').value = v.data_verifica;
+      document.getElementById('form-titolo').textContent = 'Modifica verifica';
+      document.getElementById('btn-annulla').style.display = 'inline';
+      document.getElementById('msg-form').style.display = 'none';
+      document.getElementById('msg-form-ok').style.display = 'none';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function eliminaVerifica(id) {
+      if (!confirm('Eliminare questa verifica?')) return;
+      await fetch('/api/verifiche/' + id, { method: 'DELETE', headers: { 'x-admin-password': adminPassword } });
+      caricaVerifiche();
+    }
+
+    document.getElementById('btn-annulla').addEventListener('click', resetForm);
+
+    function resetForm() {
+      editingId = null;
+      document.getElementById('f-materia').value = '';
+      document.getElementById('f-classe').value = '';
+      document.getElementById('f-argomento').value = '';
+      document.getElementById('f-data').value = '';
+      document.getElementById('form-titolo').textContent = 'Aggiungi verifica';
+      document.getElementById('btn-annulla').style.display = 'none';
+    }
+
+    document.getElementById('btn-analizza').addEventListener('click', async () => {
+      const file = document.getElementById('file-import').files[0];
+      const msgErr = document.getElementById('msg-import-err');
+      const msgOk = document.getElementById('msg-import-ok');
+      msgErr.style.display = 'none'; msgOk.style.display = 'none';
+      document.getElementById('anteprima-import').style.display = 'none';
+      if (!file) { msgErr.textContent = 'Seleziona un file .docx o .pdf'; msgErr.style.display = 'block'; return; }
+      const btn = document.getElementById('btn-analizza');
+      btn.textContent = 'Analisi in corso...'; btn.disabled = true;
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch('/api/import', {
+          method: 'POST', headers: { 'x-admin-password': adminPassword }, body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) { msgErr.textContent = data.error || 'Errore'; msgErr.style.display = 'block'; return; }
+        if (data.trovate === 0) { msgErr.textContent = data.messaggio || 'Nessuna verifica trovata'; msgErr.style.display = 'block'; return; }
+        verificheAnteprima = data.verifiche;
+        document.getElementById('titolo-anteprima').textContent = 'Trovate ' + data.trovate + ' verifiche — controlla e conferma';
+        let righe = '';
+        verificheAnteprima.forEach(function(v, i) {
+          righe += '<tr style="border-bottom:1px solid var(--bordo)">' +
+            '<td style="padding:8px"><input type="text" value="' + (v.materia||'') + '" style="margin:0;padding:4px 8px" onchange="verificheAnteprima[' + i + '].materia=this.value"></td>' +
+            '<td style="padding:8px"><input type="text" value="' + (v.argomento||'') + '" style="margin:0;padding:4px 8px" onchange="verificheAnteprima[' + i + '].argomento=this.value"></td>' +
+            '<td style="padding:8px"><input type="date" value="' + (v.data_verifica||'') + '" style="margin:0;padding:4px 8px" onchange="verificheAnteprima[' + i + '].data_verifica=this.value"></td>' +
+            '<td style="padding:8px"><input type="text" value="' + (v.classe||'') + '" style="margin:0;padding:4px 8px;width:70px" onchange="verificheAnteprima[' + i + '].classe=this.value"></td>' +
+            '</tr>';
+        });
+        document.getElementById('tabella-anteprima').innerHTML =
+          '<table style="width:100%;border-collapse:collapse;font-size:0.9rem"><thead><tr style="background:var(--grigio-chiaro)"><th style="padding:8px;text-align:left">Materia</th><th style="padding:8px;text-align:left">Argomento</th><th style="padding:8px;text-align:left">Data</th><th style="padding:8px;text-align:left">Classe</th></tr></thead><tbody>' + righe + '</tbody></table>';
+        document.getElementById('anteprima-import').style.display = 'block';
+      } catch (e) {
+        msgErr.textContent = 'Errore di rete: ' + e.message; msgErr.style.display = 'block';
+      } finally {
+        btn.textContent = 'Analizza file'; btn.disabled = false;
+      }
+    });
+
+    document.getElementById('btn-conferma-import').addEventListener('click', async () => {
+      const msgOk = document.getElementById('msg-import-ok');
+      const msgErr = document.getElementById('msg-import-err');
+      msgOk.style.display = 'none'; msgErr.style.display = 'none';
+      const res = await fetch('/api/import/conferma', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+        body: JSON.stringify({ verifiche: verificheAnteprima })
+      });
+      const data = await res.json();
+      if (!res.ok) { msgErr.textContent = data.error; msgErr.style.display = 'block'; return; }
+      msgOk.textContent = data.salvate + ' verifiche importate con successo.';
+      msgOk.style.display = 'block';
+      document.getElementById('anteprima-import').style.display = 'none';
+      document.getElementById('file-import').value = '';
+      verificheAnteprima = [];
+      caricaVerifiche();
+    });
+
+    document.getElementById('btn-annulla-import').addEventListener('click', () => {
+      document.getElementById('anteprima-import').style.display = 'none';
+      verificheAnteprima = [];
+    });
+
+    document.getElementById('btn-invia-promemoria').addEventListener('click', async () => {
+      const msgOk = document.getElementById('msg-promemoria');
+      const msgErr = document.getElementById('msg-promemoria-err');
+      msgOk.style.display = 'none'; msgErr.style.display = 'none';
+      const res = await fetch('/api/send-reminders', { method: 'POST', headers: { 'x-admin-password': adminPassword } });
+      const data = await res.json();
+      if (!res.ok) { msgErr.textContent = data.error || 'Errore invio.'; msgErr.style.display = 'block'; }
+      else { msgOk.textContent = data.messaggio || 'Promemoria inviato a ' + data.emailInviate + ' studenti.'; msgOk.style.display = 'block'; }
+    });
+  </script>
+</body>
+</html>
