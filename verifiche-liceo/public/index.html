@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verifiche Scolastiche</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1d4ed8">
+</head>
+<body>
+  <header>
+    <h1>📋 Verifiche Scolastiche</h1>
+    <nav>
+      <a href="login.html" id="nav-accedi">Accedi</a>
+      <a href="admin.html">Admin</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="card">
+      <h2 style="margin-bottom:16px">Prossime verifiche</h2>
+      <div class="filtri">
+        <button class="filtro-btn attivo" data-filtro="tutte">Tutte</button>
+        <button class="filtro-btn" data-filtro="prossime">Prossime</button>
+        <button class="filtro-btn" data-filtro="settimana">Questa settimana</button>
+        <button class="filtro-btn" data-filtro="passate">Passate</button>
+      </div>
+      <div id="lista-verifiche">
+        <div class="vuoto"><p>Caricamento...</p></div>
+      </div>
+    </div>
+
+    <div class="card" id="card-notifiche" style="display:none">
+      <h3 style="margin-bottom:8px">Notifiche push</h3>
+      <p style="font-size:0.9rem;color:var(--grigio);margin-bottom:12px">
+        Attiva le notifiche per ricevere promemoria direttamente su questo dispositivo.
+      </p>
+      <button class="btn btn-primario" id="btn-notifiche">Attiva notifiche</button>
+      <p id="stato-notifiche" style="font-size:0.85rem;margin-top:8px;color:var(--grigio)"></p>
+    </div>
+  </main>
+
+  <script>
+    let tutteLeVerifiche = [];
+    let filtroAttivo = 'tutte';
+
+    function badgeUrgenza(dataStr) {
+      const oggi = new Date(); oggi.setHours(0,0,0,0);
+      const data = new Date(dataStr + 'T00:00:00');
+      const diff = Math.round((data - oggi) / 86400000);
+      if (diff < 0) return '<span class="badge badge-passata">Passata</span>';
+      if (diff === 0) return '<span class="badge badge-oggi">Oggi</span>';
+      if (diff === 1) return '<span class="badge badge-domani">Domani</span>';
+      if (diff <= 7) return '<span class="badge badge-settimana">Questa settimana</span>';
+      return '<span class="badge badge-futura">In arrivo</span>';
+    }
+
+    function formatData(dataStr) {
+      const d = new Date(dataStr + 'T00:00:00');
+      const giorno = d.toLocaleDateString('it-IT', { weekday: 'short' });
+      const num = d.getDate();
+      const mese = d.toLocaleDateString('it-IT', { month: 'short' });
+      return { giorno, num, mese };
+    }
+
+    function verificaInFiltro(v) {
+      const oggi = new Date(); oggi.setHours(0,0,0,0);
+      const data = new Date(v.data_verifica + 'T00:00:00');
+      const diff = Math.round((data - oggi) / 86400000);
+      if (filtroAttivo === 'tutte') return true;
+      if (filtroAttivo === 'prossime') return diff >= 0;
+      if (filtroAttivo === 'settimana') return diff >= 0 && diff <= 7;
+      if (filtroAttivo === 'passate') return diff < 0;
+      return true;
+    }
+
+    function renderVerifiche() {
+      const lista = tutteLeVerifiche.filter(verificaInFiltro);
+      const el = document.getElementById('lista-verifiche');
+      if (lista.length === 0) {
+        el.innerHTML = '<div class="vuoto"><p>Nessuna verifica trovata.</p></div>';
+        return;
+      }
+      el.innerHTML = lista.map(v => {
+        const { giorno, num, mese } = formatData(v.data_verifica);
+        return `<div class="verifica-card">
+          <div class="verifica-data">
+            <strong>${num} ${mese}</strong>
+            ${giorno}
+          </div>
+          <div class="verifica-info">
+            <h3>${v.materia} <small style="font-weight:400;color:var(--grigio)">— ${v.classe}</small></h3>
+            <p>${v.argomento}</p>
+          </div>
+          <div>${badgeUrgenza(v.data_verifica)}</div>
+        </div>`;
+      }).join('');
+    }
+
+    async function caricaVerifiche() {
+      try {
+        const res = await fetch('/api/verifiche');
+        tutteLeVerifiche = await res.json();
+        renderVerifiche();
+      } catch (e) {
+        document.getElementById('lista-verifiche').innerHTML =
+          '<div class="vuoto"><p>Errore nel caricamento. Riprova.</p></div>';
+      }
+    }
+
+    document.querySelectorAll('.filtro-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filtro-btn').forEach(b => b.classList.remove('attivo'));
+        btn.classList.add('attivo');
+        filtroAttivo = btn.dataset.filtro;
+        renderVerifiche();
+      });
+    });
+
+    // Notifiche push
+    async function initNotifiche() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+      const res = await fetch('/api/vapid-public');
+      const { key } = await res.json();
+      if (!key) return;
+
+      document.getElementById('card-notifiche').style.display = 'block';
+
+      if (Notification.permission === 'granted') {
+        document.getElementById('stato-notifiche').textContent = 'Notifiche attive su questo dispositivo.';
+        document.getElementById('btn-notifiche').textContent = 'Notifiche attive';
+        document.getElementById('btn-notifiche').disabled = true;
+      }
+
+      document.getElementById('btn-notifiche').addEventListener('click', async () => {
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') {
+          document.getElementById('stato-notifiche').textContent = 'Permesso negato.';
+          return;
+        }
+        const sw = await navigator.serviceWorker.ready;
+        const sub = await sw.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(key)
+        });
+        await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: sub.toJSON(), email: '' })
+        });
+        document.getElementById('stato-notifiche').textContent = 'Notifiche attivate con successo!';
+        document.getElementById('btn-notifiche').textContent = 'Notifiche attive';
+        document.getElementById('btn-notifiche').disabled = true;
+      });
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+
+    caricaVerifiche();
+    initNotifiche();
+  </script>
+</body>
+</html>
